@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"log"
 	"net/http"
 	"strings"
 )
@@ -9,6 +10,13 @@ import (
 // Typically, the returned handler is a closure which does something with the http.ResponseWriter and http.Request passed
 // to it, and then calls the handler passed as parameter to the MiddlewareFunc.
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// MiddlewareFuncWithLogging is a middleware function with optional logging.
+// It wraps a MiddlewareFunc and adds logging capabilities.
+type MiddlewareFuncWithLogging struct {
+	Handler MiddlewareFunc
+	Name    string
+}
 
 // middleware interface is anything which implements a MiddlewareFunc named Middleware.
 type middleware interface {
@@ -20,11 +28,27 @@ func (mw MiddlewareFunc) Middleware(handler http.Handler) http.Handler {
 	return mw(handler)
 }
 
+// Middleware allows MiddlewareFuncWithLogging to implement the middleware interface.
+func (mw MiddlewareFuncWithLogging) Middleware(handler http.Handler) http.Handler {
+	return mw.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Executing middleware: %s", mw.Name)
+		handler.ServeHTTP(w, r)
+	}))
+}
+
 // Use appends a MiddlewareFunc to the chain. Middleware can be used to intercept or otherwise modify requests and/or responses, and are executed in the order that they are applied to the Router.
 func (r *Router) Use(mwf ...MiddlewareFunc) {
 	for _, fn := range mwf {
 		r.middlewares = append(r.middlewares, fn)
 	}
+}
+
+// UseWithLogging appends a MiddlewareFuncWithLogging to the chain, allowing optional logging.
+func (r *Router) UseWithLogging(name string, mw MiddlewareFunc) {
+	r.useInterface(MiddlewareFuncWithLogging{
+		Handler: mw,
+		Name:    name,
+	})
 }
 
 // useInterface appends a middleware to the chain. Middleware can be used to intercept or otherwise modify requests and/or responses, and are executed in the order that they are applied to the Router.
@@ -43,7 +67,17 @@ func (r *Route) Use(mwf ...MiddlewareFunc) *Route {
 	return r
 }
 
-// useInterface appends a MiddlewareFunc to the chain. Middleware can be used to intercept or otherwise modify requests and/or responses, and are executed in the order that they are applied to the Route. Route middleware are executed after the Router middleware but before the Route handler.
+// UseWithLogging appends a MiddlewareFuncWithLogging to the route's middleware chain.
+func (r *Route) UseWithLogging(name string, mw MiddlewareFunc) *Route {
+	r.useInterface(MiddlewareFuncWithLogging{
+		Handler: mw,
+		Name:    name,
+	})
+
+	return r
+}
+
+// useInterface appends a middleware to the chain. Middleware can be used to intercept or otherwise modify requests and/or responses, and are executed in the order that they are applied to the Route. Route middleware are executed after the Router middleware but before the Route handler.
 func (r *Route) useInterface(mw middleware) {
 	r.middlewares = append(r.middlewares, mw)
 }

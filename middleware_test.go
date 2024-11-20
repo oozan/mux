@@ -3,7 +3,9 @@ package mux
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +118,40 @@ func TestMiddleware(t *testing.T) {
 		}
 	})
 }
+
+func TestMiddlewareExecutionWithLogging(t *testing.T) {
+	handlerStr := []byte("Logic\n")
+	logOutput := &bytes.Buffer{}
+	log.SetOutput(logOutput) // Redirect logs to the buffer for testing
+	defer log.SetOutput(nil) // Reset log output after the test
+
+	handlerFunc := func(w http.ResponseWriter, e *http.Request) {
+		_, err := w.Write(handlerStr)
+		if err != nil {
+			t.Fatalf("Failed writing HTTP response: %v", err)
+		}
+	}
+
+	router := NewRouter()
+	router.HandleFunc("/", handlerFunc)
+
+	router.UseWithLogging("TestMiddleware", func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h.ServeHTTP(w, r)
+		})
+	})
+
+	rw := NewRecorder()
+	req := newRequest("GET", "/")
+
+	router.ServeHTTP(rw, req)
+
+	expectedLog := "Executing middleware: TestMiddleware\n"
+	if !strings.Contains(logOutput.String(), expectedLog) {
+		t.Fatalf("Expected log output '%s', but got '%s'", expectedLog, logOutput.String())
+	}
+}
+
 
 func TestMiddlewareSubrouter(t *testing.T) {
 	router := NewRouter()
